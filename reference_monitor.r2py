@@ -1,0 +1,103 @@
+TYPE = "type"
+ARGS = "args"
+RETURN = "return"
+EXCP = "exceptions"
+TARGET = "target"
+FUNC = "func"
+OBJC = "objc"
+
+
+class ABFile():
+    def __init__(self, filename, create):
+        # globals
+        mycontext['debug'] = False
+        # local (per object) reference to the underlying file
+        self.Afn = filename + '.a' #backup
+        self.Bfn = filename + '.b' #write to this file
+
+        # make the files and add 'SE' to the readat file...
+        if create:
+
+            #if create is True but files already exist
+            if self.Afn in listfiles():
+                self.Afile = openfile(self.Afn, False)
+                self.Bfile = openfile(self.Bfn, False)
+
+            # create new A/B files
+            else:
+                self.Afile = openfile(self.Afn, create)
+                self.Bfile = openfile(self.Bfn, create)
+                #default SE in empty backup file
+                self.Afile.writeat('SE', 0)
+
+        #create is False
+        else:
+            #open existing files, create set to false
+            self.Afile = openfile(self.Afn, False)
+            self.Bfile = openfile(self.Bfn, False)
+
+    def writeat(self, data, offset):
+        # Write the requested data to the B file using the sandbox's writeat call
+        BData = self.Bfile.readat(None, 0)
+        if len(BData) < len(data):
+            self.Bfile.writeat(data, offset)
+        else:
+            self.Bfile.close()
+            removefile(self.Bfn)
+            self.Bfile = openfile(self.Bfn, True)
+            self.Bfile.writeat(data, 0)
+
+        #catch exceptions when writing to closed file??
+
+
+    def readat(self, bytes, offset):
+        # Read from the A file using the sandbox's readat...
+        return self.Afile.readat(bytes, offset)
+
+    def close(self):
+
+        BData = self.Bfile.readat(None, 0)
+        firstChar = self.Bfile.readat(1, 0)
+        lastChar = BData[-1:]
+
+        # file invalid, restore B file with backup data
+        if (firstChar != 'S' and lastChar != 'E'):
+            AData = self.Afile.readat(None, 0)
+
+            #create new B file to rewrite backup data to filename.b
+            self.Bfile.close()
+            removefile(self.Bfn)
+            self.newBfile = openfile(self.Bfn, True)
+            self.newBfile.writeat(AData, 0)
+            self.newBfile.close()
+
+        #file valid, update backup data with BData
+        else:
+            self.Afile.writeat(BData, 0)
+            self.Bfile.close()
+
+        self.Afile.close()
+
+
+
+def ABopenfile(filename, create):
+    return ABFile(filename, create)
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type": ABFile,
+                "name": "ABFile",
+                "writeat": {"type": "func", "args": (str, (int, long)), "exceptions": Exception,
+                            "return": (int, type(None)), "target": ABFile.writeat},
+                "readat": {"type": "func", "args": ((int, long, type(None)), (int, long)), "exceptions": Exception,
+                           "return": str, "target": ABFile.readat},
+                "close": {"type": "func", "args": None, "exceptions": None, "return": (bool, type(None)),
+                          "target": ABFile.close}
+                }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE: OBJC, ARGS: (str, bool), EXCP: Exception, RETURN: sec_file_def,
+                                   TARGET: ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()
